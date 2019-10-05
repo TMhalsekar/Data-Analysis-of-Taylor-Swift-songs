@@ -1,0 +1,227 @@
+library(magrittr)
+library(stringr)
+library(dplyr)
+library(ggplot2)
+library(tm)
+library(wordcloud)
+library(syuzhet)
+library(tidytext)
+library(tidyr)
+library(igraph)
+library(ggraph)
+library(readr)
+library(circlize)
+library(reshape2)
+
+lyrics <- read.csv(file.choose())
+
+lyrics$length <- str_count(lyrics$lyric,"\\S+") 
+
+length_df <- lyrics %>% 
+             group_by(track_title) %>% 
+             summarise(length = sum(length))
+
+length_df %>% 
+  arrange(desc(length)) %>%
+  slice(1:10) %>%
+  ggplot(., aes(x= reorder(track_title, -length), y=length)) +
+  geom_bar(stat='identity', fill="#1CCCC6") + 
+  ylab("Word count") + xlab ("Track title") + 
+  ggtitle("Top 10 songs in terms of word count") + 
+  theme_minimal() + 
+  scale_x_discrete(labels = function(labels) {
+    sapply(seq_along(labels), function(i) paste0(ifelse(i %% 2 == 0, '', '\n'), labels[i]))
+  })
+
+ggplot(length_df, aes(x=length)) + 
+  geom_histogram(bins=30,aes(fill = ..count..)) + 
+  geom_vline(aes(xintercept=mean(length)),
+             color="#FFFFFF", linetype="dashed", size=1) +
+  geom_density(aes(y=25 * ..count..),alpha=.2, fill="#1CCCC6") +
+  ylab("Count") + xlab ("Legth") + 
+  ggtitle("Distribution of word count") + 
+  theme_minimal()
+
+lyrics %>% 
+group_by(album,year) %>% 
+summarise(length = sum(length)) -> length_df_album
+
+ggplot(length_df_album, aes(x= reorder(album, -length), y=length)) +
+geom_bar(stat='identity', fill="#1CCCC6") + 
+ylab("Word count") + xlab ("Album") + 
+ggtitle("Word count based on albums") + 
+theme_minimal()
+
+length_df_album %>% 
+arrange(desc(year)) %>% 
+ggplot(., aes(x= factor(year), y=length, group = 1)) +
+geom_line(colour="#1CCCC6", size=1) + 
+ylab("Word count") + xlab ("Year") + 
+ggtitle("Word count change over the years") + 
+theme_minimal()
+
+#adding year column by matching track_title
+length_df$year <- lyrics$year[match(length_df$track_title, lyrics$track_title)] 
+
+length_df %>% 
+ group_by(year) %>% 
+ summarise(length = mean(length)) %>%
+   ggplot(., aes(x= factor(year), y=length, group = 1)) +
+   geom_line(colour="#1CCCC6", size=1) + 
+   ylab("Average word count") + xlab ("Year") + 
+   ggtitle("Year-wise average Word count change") + 
+   theme_minimal()  
+
+
+
+
+lyrics_text <- lyrics$lyric
+#Removing punctations and alphanumeric content
+lyrics_text<- gsub('[[:punct:]]+', '', lyrics_text)
+lyrics_text<- gsub("([[:alpha:]])\1+", "", lyrics_text)
+#creating a text corpus
+docs <- Corpus(VectorSource(lyrics_text))
+# Converting the text to lower case
+docs <- tm_map(docs, content_transformer(tolower))
+# Removing english common stopwords
+docs <- tm_map(docs, removeWords, stopwords("english"))
+# creating term document matrix
+tdm <- TermDocumentMatrix(docs)
+# defining tdm as matrix
+m <- as.matrix(tdm)
+# getting word counts in decreasing order
+word_freqs = sort(rowSums(m), decreasing=TRUE)
+
+
+visualize_bigrams <- function(bigrams) {
+set.seed(2016)
+a <- grid::arrow(type = "closed", length = unit(.15, "inches"))
+
+bigrams %>%
+graph_from_data_frame() %>%
+ggraph(layout = "fr") +
+geom_edge_link(aes(edge_alpha = n), show.legend = FALSE, arrow = a) +
+geom_node_point(color = "lightblue", size = 5) +
+geom_node_text(aes(label = name), vjust = 1, hjust = 1) +
+ggtitle("Network graph of bigrams") +
+theme_void()
+}
+
+lyrics_bigrams %>%
+ filter(n > 3,
+       !str_detect(word1, "\\d"),
+       !str_detect(word2, "\\d")) %>%
+visualize_bigrams()
+
+
+# Getting the sentiment value for the lyrics
+ty_sentiment <- get_nrc_sentiment((lyrics_text))
+
+# Dataframe with cumulative value of the sentiments
+sentimentscores<-data.frame(colSums(ty_sentiment[,]))
+
+# Dataframe with sentiment and score as columns
+names(sentimentscores) <- "Score"
+sentimentscores <- cbind("sentiment"=rownames(sentimentscores),sentimentscores)
+rownames(sentimentscores) <- NULL
+
+# Plot for the cumulative sentiments
+ggplot(data=sentimentscores,aes(x=sentiment,y=Score))+
+geom_bar(aes(fill=sentiment),stat = "identity")+
+theme(legend.position="none")+
+xlab("Sentiments")+ylab("Scores")+
+ggtitle("Total sentiment based on scores")+
+theme_minimal() 
+
+lyrics$lyric <- as.character(lyrics$lyric)
+
+tidy_lyrics <- lyrics %>% 
+unnest_tokens(word,lyric)
+
+song_wrd_count <- tidy_lyrics %>% count(track_title)
+
+lyric_counts <- tidy_lyrics %>%
+left_join(song_wrd_count, by = "track_title") %>% 
+rename(total_words=n)
+
+lyric_sentiment <- tidy_lyrics %>% 
+inner_join(get_sentiments("nrc"),by="word")
+
+lyric_sentiment %>% 
+count(word,sentiment,sort=TRUE) %>% 
+group_by(sentiment)%>%top_n(n=10) %>% 
+ungroup() %>%
+ggplot(aes(x=reorder(word,n),y=n,fill=sentiment)) +
+geom_col(show.legend = FALSE) + 
+facet_wrap(~sentiment,scales="free") +
+xlab("Sentiments") + ylab("Scores")+
+
+ggtitle("Top words used to express emotions and sentiments") +
+coord_flip()
+
+lyric_sentiment %>% 
+count(track_title,sentiment,sort=TRUE) %>% 
+group_by(sentiment) %>%
+top_n(n=5) %>% 
+ggplot(aes(x=reorder(track_title,n),y=n,fill=sentiment)) + 
+geom_bar(stat="identity",show.legend = FALSE) + 
+facet_wrap(~sentiment,scales="free") + 
+xlab("Sentiments") + ylab("Scores")+
+ggtitle("Top songs associated with emotions and sentiments") +
+coord_flip()
+# creating a data frame with words and their frequencies
+lyrics_wc_df <- data.frame(word=names(word_freqs), freq=word_freqs)
+
+lyrics_wc_df <- lyrics_wc_df[1:300,]
+
+# plotting wordcloud
+
+set.seed(1234)
+wordcloud(words = lyrics_wc_df$word, freq = lyrics_wc_df$freq,
+min.freq = 1,scale=c(1.8,.5),
+max.words=200, random.order=FALSE, rot.per=0.15,
+colors=brewer.pal(8, "Dark2"))
+
+count_bigrams <- function(dataset) {
+dataset %>%
+unnest_tokens(bigram, lyric, token = "ngrams", n = 2) %>%
+separate(bigram, c("word1", "word2"), sep = " ") %>%
+filter(!word1 %in% stop_words$word,
+!word2 %in% stop_words$word) %>%
+count(word1, word2, sort = TRUE)
+}
+
+lyrics_bigrams <- lyrics %>%
+count_bigrams()
+
+head(lyrics_bigrams, 10)
+
+
+bng <- get_sentiments("bing")
+
+set.seed(1234)
+
+tidy_lyrics %>%
+inner_join(get_sentiments("bing")) %>%
+count(word, sentiment, sort = TRUE) %>%
+acast(word ~ sentiment, value.var = "n", fill = 0) %>%
+comparison.cloud(colors = c("#F8766D", "#00BFC4"),
+max.words = 250)
+
+grid.col = c("2006" = "#E69F00", "2008" = "#56B4E9", "2010" = "#009E73", "2012" = "#CC79A7", "2014" = "#D55E00", "2017" = "#00D6C9", "anger" = "grey", "anticipation" = "grey", "disgust" = "grey", "fear" = "grey", "joy" = "grey", "sadness" = "grey", "surprise" = "grey", "trust" = "grey")
+
+year_emotion <- lyric_sentiment %>%
+filter(!sentiment %in% c("positive", "negative")) %>%
+count(sentiment, year) %>%
+group_by(year, sentiment) %>%
+summarise(sentiment_sum = sum(n)) %>%
+ungroup()
+
+circos.clear()
+
+#Setting the gap size
+circos.par(gap.after = c(rep(6, length(unique(year_emotion[[1]])) - 1), 15,
+rep(6, length(unique(year_emotion[[2]])) - 1), 15))
+
+chordDiagram(year_emotion, grid.col = grid.col, transparency = .2)
+title("Relationship between emotion and song's year of release")
