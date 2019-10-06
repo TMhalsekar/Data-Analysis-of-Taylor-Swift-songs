@@ -3,7 +3,7 @@ Sentiment Analysis, Data Visualization, etc of Taylor Swift songs
 
 Analysis of Taylor Swift song lyrics(Till Reputation Album, Implementation with Lover songs to be added soon)
 
-Some prominent visualizations are depicted below: \
+Some prominent visualizations are depicted below: 
 
 Word cloud of most frequent words in song lyrics: 
 
