@@ -5,7 +5,7 @@ Analysis of Taylor Swift song lyrics(Till Reputation Album, Implementation with 
 
 Some prominent visualizations are depicted below: 
 
-Word cloud of most frequent words in song lyrics: 
+Word cloud of frequent words in song lyrics: 
 
 <img src="https://user-images.githubusercontent.com/25851171/66276268-408f5200-e846-11e9-880d-6225ba708052.png" width="500" height="300">\
 
